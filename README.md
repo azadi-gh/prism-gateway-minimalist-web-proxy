@@ -1,6 +1,6 @@
 # Cloudflare Workers Full-Stack Template
 
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/azadi-gh/prism-gateway-minimalist-web-proxy)
 
 A production-ready full-stack starter template for Cloudflare Workers, featuring a React frontend with Tailwind CSS & shadcn/ui, Hono backend API, and Durable Objects for stateful storage. Deploy instantly to Cloudflare's global edge network.
 
@@ -113,7 +113,7 @@ Errors from the frontend are automatically reported to `/api/client-errors`.
 
 3. Or use the button:
 
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/azadi-gh/prism-gateway-minimalist-web-proxy)
 
 Your app will be live at `https://${wrangler.jsonc:name}.${your-subdomain}.workers.dev`.
 
