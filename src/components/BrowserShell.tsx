@@ -148,7 +148,6 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
     <div className="flex flex-col h-screen w-full bg-background overflow-hidden">
       <TooltipProvider>
         <header className="relative h-20 flex items-center px-6 gap-6 border-b bg-background/60 backdrop-blur-3xl z-30">
-          {/* Navigation Control Pod */}
           <div className="flex items-center gap-1.5 p-1 premium-glass rounded-2xl">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -178,7 +177,6 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
               <ArrowRight className="w-4 h-4" />
             </Button>
           </div>
-          {/* Premium Address Bar */}
           <form onSubmit={handleNavigate} className="flex-grow max-w-5xl">
             <div className="relative flex items-center group">
               <div className="absolute left-4 flex items-center gap-3">
@@ -203,8 +201,15 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
               <Input
                 value={isFocused ? displayUrl : getPrettyUrl(displayUrl)}
                 onChange={(e) => setDisplayUrl(e.target.value)}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+                onFocus={() => {
+                  setIsFocused(true);
+                  // Optional: select all text on focus for easier editing
+                  // (e.target as HTMLInputElement).select();
+                }}
+                onBlur={() => {
+                  // Reduced timeout to 150ms for snappier feedback while preventing icon flicker
+                  setTimeout(() => setIsFocused(false), 150);
+                }}
                 className="w-full h-12 pl-14 pr-28 bg-secondary/40 border-none focus-visible:ring-4 focus-visible:ring-indigo-500/10 rounded-2xl text-[13px] font-bold tracking-tight transition-all"
                 spellCheck={false}
                 autoComplete="off"
@@ -251,7 +256,6 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
               </div>
             </div>
           </form>
-          {/* Live Indicator */}
           <div className="hidden lg:flex w-32 justify-end">
             <div className="h-10 px-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 flex items-center gap-3">
               <span className="relative flex h-2 w-2">
@@ -261,7 +265,6 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
               <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">Active</span>
             </div>
           </div>
-          {/* Sophisticated Progress Line */}
           <AnimatePresence>
             {isLoading && (
               <motion.div

@@ -20,21 +20,21 @@ export function HomePage() {
     <div className="relative min-h-screen bg-background text-foreground font-sans overflow-x-hidden">
       {/* Animated Mesh Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <motion.div 
-          animate={{ 
+        <motion.div
+          animate={{
             rotate: [0, 360],
             scale: [1, 1.2, 1]
           }}
           transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-          className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-indigo-500/10 rounded-full blur-[140px]" 
+          className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-indigo-500/10 rounded-full blur-[140px]"
         />
-        <motion.div 
-          animate={{ 
+        <motion.div
+          animate={{
             rotate: [360, 0],
             scale: [1.2, 1, 1.2]
           }}
           transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-          className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-purple-500/10 rounded-full blur-[140px]" 
+          className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-purple-500/10 rounded-full blur-[140px]"
         />
       </div>
       <AnimatePresence mode="wait">
@@ -44,7 +44,7 @@ export function HomePage() {
             initial={{ opacity: 0, scale: 1.02, filter: 'blur(10px)' }}
             animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
             exit={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
-            transition={{ duration: 0.6, cubicBezier: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
             className="relative z-10"
           >
             <ThemeToggle className="fixed top-6 right-6" />
