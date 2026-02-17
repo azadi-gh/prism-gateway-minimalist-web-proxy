@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ArrowLeft, ArrowRight, RotateCw, ShieldCheck, Home, 
-  ExternalLink, Star, Copy, MoreVertical, ShieldAlert
+import {
+  ArrowLeft, ArrowRight, RotateCw, ShieldCheck, Home,
+  ExternalLink, Star, Copy, MoreVertical
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { 
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger 
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { getProxyUrl, normalizeUrl, getFaviconUrl, extractTargetUrl, cleanTitle } from '@/lib/url-utils';
+import { getProxyUrl, normalizeUrl, getFaviconUrl, cleanTitle } from '@/lib/url-utils';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
 import type { Bookmark, ApiResponse } from '@shared/types';
@@ -33,7 +33,9 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
       if (json.success && json.data) {
         setIsBookmarked(json.data.some(b => b.url === url));
       }
-    } catch (e) {}
+    } catch (e) {
+      /* Silently fail bookmark check to prevent UI interruption */
+    }
   }, []);
   const recordHistory = useCallback(async (url: string, title?: string) => {
     try {
@@ -48,7 +50,9 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
           faviconUrl: getFaviconUrl(url)
         }),
       });
-    } catch (e) {}
+    } catch (e) {
+      /* Background history recording can fail without blocking the user */
+    }
   }, []);
   useEffect(() => {
     if (initialUrl) {
@@ -170,10 +174,10 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
               spellCheck={false}
             />
             <div className="absolute right-2 flex items-center gap-1">
-              <Button 
-                type="button" 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
                 onClick={toggleBookmark}
                 className={`h-7 w-7 rounded-lg transition-colors ${isBookmarked ? 'text-yellow-500 hover:text-yellow-600' : 'text-muted-foreground'}`}
               >

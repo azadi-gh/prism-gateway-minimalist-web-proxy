@@ -35,16 +35,37 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         try {
             const url = new URL(targetUrl);
             const clientHeaders = new Headers(c.req.header());
-            // Filter headers to pass to target
+            // Filter and prepare headers for target
             const headersToSend = new Headers();
-            const allowedHeaders = ['user-agent', 'accept', 'accept-language', 'cookie', 'referer'];
+            const allowedHeaders = [
+                'user-agent', 'accept', 'accept-language', 'cookie', 'referer', 
+                'range', 'content-type', 'origin'
+            ];
             allowedHeaders.forEach(h => {
                 const val = clientHeaders.get(h);
                 if (val) headersToSend.set(h, val);
             });
-            const response = await fetch(url.toString(), { headers: headersToSend });
+            const response = await fetch(url.toString(), { 
+                headers: headersToSend,
+                redirect: 'follow'
+            });
+            const contentType = response.headers.get('content-type') || '';
+            const isHtml = contentType.toLowerCase().includes('text/html');
+            // If it's not HTML (e.g., video, audio, image, binary stream), 
+            // stream it directly with necessary range headers
+            if (!isHtml) {
+                const proxyHeaders = new Headers(response.headers);
+                proxyHeaders.delete('X-Frame-Options');
+                proxyHeaders.delete('Content-Security-Policy');
+                proxyHeaders.set('Access-Control-Allow-Origin', '*');
+                return new Response(response.body, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: proxyHeaders
+                });
+            }
             const proxyBase = `${new URL(c.req.url).origin}/api/proxy?url=`;
-            // Script for navigation sync
+            // Script for navigation sync and basic interceptors
             const injectionScript = `
                 <script>
                     (function() {
@@ -52,14 +73,6 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
                         if (window.parent !== window) {
                             window.parent.postMessage({ type: 'PRISM_NAV', url: targetUrl, title: document.title }, '*');
                         }
-                        // Intercept clicks for internal links that might not be rewritten
-                        document.addEventListener('click', e => {
-                            const link = e.target.closest('a');
-                            if (link && link.href && !link.href.startsWith('mailto:') && !link.href.startsWith('tel:')) {
-                                // If it's not already proxied, we might want to handle it, 
-                                // but HTMLRewriter usually catches these.
-                            }
-                        }, true);
                     })();
                 </script>
             `;
@@ -67,25 +80,32 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
                 .on('head', {
                     element(el) { el.append(injectionScript, { html: true }); }
                 })
-                .on('a', {
+                .on('a, area', {
                     element(el) {
                         const href = el.getAttribute('href');
-                        if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+                        if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !href.startsWith('mailto:')) {
                             try {
                                 const absolute = new URL(href, url.origin).toString();
                                 el.setAttribute('href', proxyBase + encodeURIComponent(absolute));
-                            } catch (e) {}
+                            } catch (e) { /* Invalid URL segments ignored */ }
                         }
                     }
                 })
-                .on('img', {
+                .on('img, video, audio, source, track, iframe, embed', {
                     element(el) {
                         const src = el.getAttribute('src');
                         if (src) {
                             try {
                                 const absolute = new URL(src, url.origin).toString();
                                 el.setAttribute('src', proxyBase + encodeURIComponent(absolute));
-                            } catch (e) {}
+                            } catch (e) { /* Handle relative path resolution failure */ }
+                        }
+                        const poster = el.getAttribute('poster');
+                        if (poster) {
+                            try {
+                                const absolute = new URL(poster, url.origin).toString();
+                                el.setAttribute('poster', proxyBase + encodeURIComponent(absolute));
+                            } catch (e) { /* Ignore malformed poster URLs */ }
                         }
                     }
                 })
@@ -96,7 +116,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
                             try {
                                 const absolute = new URL(href, url.origin).toString();
                                 el.setAttribute('href', proxyBase + encodeURIComponent(absolute));
-                            } catch (e) {}
+                            } catch (e) { /* Link resolution skip */ }
                         }
                     }
                 })
@@ -107,7 +127,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
                             try {
                                 const absolute = new URL(src, url.origin).toString();
                                 el.setAttribute('src', proxyBase + encodeURIComponent(absolute));
-                            } catch (e) {}
+                            } catch (e) { /* Script src resolution skip */ }
                         }
                     }
                 });
@@ -116,16 +136,16 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
             headers.delete('X-Frame-Options');
             headers.delete('Content-Security-Policy');
             headers.set('Access-Control-Allow-Origin', '*');
-            // Set-Cookie handling: map to proxy domain
             const setCookie = response.headers.get('set-cookie');
             if (setCookie) {
-                headers.set('Set-Cookie', setCookie); 
+                headers.set('Set-Cookie', setCookie);
             }
             return new Response(transformedResponse.body, {
                 status: transformedResponse.status,
                 headers
             });
         } catch (error) {
+            console.error('Proxy Error:', error);
             return c.json({ success: false, error: 'Failed to fetch the requested URL' }, 500);
         }
     });

@@ -24,7 +24,9 @@ export function Landing({ onNavigate }: LandingProps) {
       if (hJson.success) setHistoryItems(hJson.data || []);
       if (bJson.success) setBookmarks(bJson.data || []);
       if (bJson.data?.length === 0 && hJson.data?.length !== 0) setActiveTab('history');
-    } catch (e) {}
+    } catch (e) {
+      /* Initialization data fetch can fail gracefully with empty states */
+    }
   };
   useEffect(() => { fetchData(); }, []);
   const handleSubmit = (e: React.FormEvent) => {
