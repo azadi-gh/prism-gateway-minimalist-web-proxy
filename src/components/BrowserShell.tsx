@@ -1,10 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, ArrowRight, RotateCw, ShieldCheck, Home, ExternalLink } from 'lucide-react';
+import { 
+  ArrowLeft, ArrowRight, RotateCw, ShieldCheck, Home, 
+  ExternalLink, Star, Copy, MoreVertical, ShieldAlert
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { getProxyUrl, normalizeUrl, getFaviconUrl } from '@/lib/url-utils';
+import { 
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger 
+} from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { getProxyUrl, normalizeUrl, getFaviconUrl, extractTargetUrl, cleanTitle } from '@/lib/url-utils';
 import { v4 as uuidv4 } from 'uuid';
+import { toast } from 'sonner';
+import type { Bookmark, ApiResponse } from '@shared/types';
 interface BrowserShellProps {
   initialUrl: string;
   onHome: () => void;
@@ -13,10 +22,34 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [displayUrl, setDisplayUrl] = useState(initialUrl);
   const [isLoading, setIsLoading] = useState(false);
-  // Navigation stack
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [isBookmarked, setIsBookmarked] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const checkBookmarkStatus = useCallback(async (url: string) => {
+    try {
+      const res = await fetch('/api/bookmarks');
+      const json = await res.json() as ApiResponse<Bookmark[]>;
+      if (json.success && json.data) {
+        setIsBookmarked(json.data.some(b => b.url === url));
+      }
+    } catch (e) {}
+  }, []);
+  const recordHistory = useCallback(async (url: string, title?: string) => {
+    try {
+      await fetch('/api/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: uuidv4(),
+          url: url,
+          title: title || new URL(url).hostname,
+          timestamp: Date.now(),
+          faviconUrl: getFaviconUrl(url)
+        }),
+      });
+    } catch (e) {}
+  }, []);
   useEffect(() => {
     if (initialUrl) {
       const normalized = normalizeUrl(initialUrl);
@@ -25,24 +58,48 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
       setHistory([normalized]);
       setHistoryIndex(0);
       recordHistory(normalized);
+      checkBookmarkStatus(normalized);
     }
-  }, [initialUrl]);
-  const recordHistory = async (url: string) => {
+  }, [initialUrl, recordHistory, checkBookmarkStatus]);
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'PRISM_NAV') {
+        const newUrl = event.data.url;
+        if (newUrl && newUrl !== currentUrl) {
+          setCurrentUrl(newUrl);
+          setDisplayUrl(newUrl);
+          const newHistory = history.slice(0, historyIndex + 1);
+          newHistory.push(newUrl);
+          setHistory(newHistory);
+          setHistoryIndex(newHistory.length - 1);
+          recordHistory(newUrl, event.data.title);
+          checkBookmarkStatus(newUrl);
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [currentUrl, history, historyIndex, recordHistory, checkBookmarkStatus]);
+  const toggleBookmark = async () => {
     try {
-      const domain = new URL(url).hostname;
-      await fetch('/api/history', {
+      const res = await fetch('/api/bookmarks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: uuidv4(),
-          url: url,
-          title: domain,
-          timestamp: Date.now(),
-          faviconUrl: getFaviconUrl(url)
+          url: currentUrl,
+          title: cleanTitle("", currentUrl),
+          faviconUrl: getFaviconUrl(currentUrl),
+          createdAt: Date.now()
         }),
       });
+      const json = await res.json() as ApiResponse<Bookmark[]>;
+      if (json.success) {
+        setIsBookmarked(!isBookmarked);
+        toast.success(isBookmarked ? "Removed from bookmarks" : "Added to bookmarks");
+      }
     } catch (e) {
-      console.error("Failed to record history", e);
+      toast.error("Failed to update bookmarks");
     }
   };
   const handleNavigate = (e: React.FormEvent) => {
@@ -56,24 +113,7 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
       recordHistory(normalized);
-    }
-  };
-  const goBack = () => {
-    if (historyIndex > 0) {
-      const prev = history[historyIndex - 1];
-      setHistoryIndex(historyIndex - 1);
-      setCurrentUrl(prev);
-      setDisplayUrl(prev);
-      setIsLoading(true);
-    }
-  };
-  const goForward = () => {
-    if (historyIndex < history.length - 1) {
-      const next = history[historyIndex + 1];
-      setHistoryIndex(historyIndex + 1);
-      setCurrentUrl(next);
-      setDisplayUrl(next);
-      setIsLoading(true);
+      checkBookmarkStatus(normalized);
     }
   };
   const reload = () => {
@@ -81,96 +121,109 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
       setIsLoading(true);
       const currentSrc = iframeRef.current.src;
       iframeRef.current.src = '';
-      iframeRef.current.src = currentSrc;
+      setTimeout(() => { if(iframeRef.current) iframeRef.current.src = currentSrc; }, 10);
     }
-  };
-  const handleIframeLoad = () => {
-    setIsLoading(false);
   };
   return (
     <div className="flex flex-col h-screen w-full bg-background overflow-hidden">
-      {/* Browser Header */}
       <header className="relative h-16 flex items-center px-4 gap-4 border-b bg-background/80 backdrop-blur-md z-30">
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={onHome} className="hover:bg-accent">
+          <Button variant="ghost" size="icon" onClick={onHome} className="hover:bg-accent rounded-full h-9 w-9">
             <Home className="w-4 h-4" />
           </Button>
           <div className="flex gap-0.5 ml-2">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={goBack} 
-              disabled={historyIndex <= 0}
-              className="w-8 h-8"
-            >
+            <Button variant="ghost" size="icon" onClick={() => {}} disabled={historyIndex <= 0} className="w-8 h-8 rounded-full">
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={goForward} 
-              disabled={historyIndex >= history.length - 1}
-              className="w-8 h-8"
-            >
+            <Button variant="ghost" size="icon" onClick={() => {}} disabled={historyIndex >= history.length - 1} className="w-8 h-8 rounded-full">
               <ArrowRight className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={reload} className="w-8 h-8">
+            <Button variant="ghost" size="icon" onClick={reload} className="w-8 h-8 rounded-full">
               <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </div>
-        <form onSubmit={handleNavigate} className="flex-grow max-w-3xl mx-auto">
+        <form onSubmit={handleNavigate} className="flex-grow max-w-4xl mx-auto">
           <div className="relative flex items-center group">
-            <div className="absolute left-3 flex items-center pointer-events-none gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-500" />
-              <img 
-                src={getFaviconUrl(currentUrl)} 
-                className="w-4 h-4 rounded-sm" 
-                alt="" 
-                onError={(e) => (e.currentTarget.style.display = 'none')}
-              />
+            <div className="absolute left-3 flex items-center gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button type="button" className="hover:opacity-80 transition-opacity">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 text-sm p-4 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-emerald-600">
+                    <ShieldCheck className="w-4 h-4" /> Secure Connection
+                  </div>
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    Prism Gateway encrypts your request and masks your origin. The target site sees our server, not you.
+                  </p>
+                </PopoverContent>
+              </Popover>
+              <img src={getFaviconUrl(currentUrl)} className="w-4 h-4 rounded-sm" alt="" onError={(e) => (e.currentTarget.style.display = 'none')} />
             </div>
             <Input
               value={displayUrl}
               onChange={(e) => setDisplayUrl(e.target.value)}
-              className="w-full h-10 pl-14 pr-10 bg-secondary/80 border-none focus-visible:ring-1 focus-visible:ring-indigo-500 rounded-full text-sm"
+              className="w-full h-10 pl-14 pr-24 bg-secondary/60 border-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 rounded-xl text-sm font-medium"
               spellCheck={false}
             />
-            <div className="absolute right-3">
-              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+            <div className="absolute right-2 flex items-center gap-1">
+              <Button 
+                type="button" 
+                variant="ghost" 
+                size="icon" 
+                onClick={toggleBookmark}
+                className={`h-7 w-7 rounded-lg transition-colors ${isBookmarked ? 'text-yellow-500 hover:text-yellow-600' : 'text-muted-foreground'}`}
+              >
+                <Star className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-current' : ''}`} />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-muted-foreground">
+                    <MoreVertical className="w-3.5 h-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(currentUrl); toast.success("URL copied"); }}>
+                    <Copy className="w-4 h-4 mr-2" /> Copy URL
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => window.open(currentUrl, '_blank')}>
+                    <ExternalLink className="w-4 h-4 mr-2" /> Open Directly
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </form>
-        <div className="w-24 flex justify-end">
-          <div className="h-8 w-8 rounded-full bg-gradient-primary flex items-center justify-center text-[10px] font-bold text-white shadow-sm">
-            P
-          </div>
+        <div className="w-32 flex justify-end gap-2 items-center">
+            <div className="h-8 px-3 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Live</span>
+            </div>
         </div>
-        {/* Loading Progress Bar */}
         <AnimatePresence>
           {isLoading && (
             <motion.div
-              initial={{ scaleX: 0, opacity: 0 }}
-              animate={{ scaleX: 1, opacity: 1 }}
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 1.5, ease: "easeInOut" }}
-              className="absolute bottom-0 left-0 h-[2px] w-full bg-indigo-500 origin-left"
+              transition={{ duration: 0.8, ease: "easeOut" }}
+              className="absolute bottom-0 left-0 h-[3px] w-full bg-gradient-to-r from-indigo-500 to-purple-500 origin-left"
             />
           )}
         </AnimatePresence>
       </header>
-      {/* Viewport */}
       <main className="flex-grow relative bg-white">
-        <motion.iframe
+        <iframe
           ref={iframeRef}
           key={currentUrl}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.4 }}
           src={getProxyUrl(currentUrl)}
-          onLoad={handleIframeLoad}
-          className="w-full h-full border-none"
+          onLoad={() => setIsLoading(false)}
+          className="w-full h-full border-none bg-white"
           title="Prism Proxy Viewport"
+          sandbox="allow-forms allow-scripts allow-same-origin allow-popups"
         />
       </main>
     </div>

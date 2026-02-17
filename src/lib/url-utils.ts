@@ -12,13 +12,10 @@ export function isValidUrl(url: string): boolean {
 export function normalizeUrl(url: string): string {
   let trimmed = url.trim();
   if (!trimmed) return "";
-  // If it doesn't start with a protocol, assume https
   if (!/^https?:\/\//i.test(trimmed)) {
-    // Check if it's a domain-like string
     if (trimmed.includes('.') && !trimmed.includes(' ')) {
       return `https://${trimmed}`;
     }
-    // Otherwise it's likely a search query
     return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
   }
   return trimmed;
@@ -27,12 +24,18 @@ export function getProxyUrl(targetUrl: string): string {
   if (!targetUrl) return "";
   return `/api/proxy?url=${encodeURIComponent(normalizeUrl(targetUrl))}`;
 }
+export function extractTargetUrl(proxyUrl: string): string {
+  try {
+    const url = new URL(proxyUrl, window.location.origin);
+    return url.searchParams.get('url') || proxyUrl;
+  } catch {
+    return proxyUrl;
+  }
+}
 export function getFaviconUrl(url: string): string {
   try {
     const domain = new URL(url).hostname;
-    // Using a proxied version of Google's Favicon API
-    const googleFavicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
-    return getProxyUrl(googleFavicon);
+    return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
   } catch {
     return "";
   }
@@ -44,4 +47,8 @@ export function getDisplayDomain(url: string): string {
   } catch {
     return url;
   }
+}
+export function cleanTitle(title: string, url: string): string {
+    if (!title || title === "undefined") return getDisplayDomain(url);
+    return title.trim();
 }

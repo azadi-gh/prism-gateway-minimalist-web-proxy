@@ -10,6 +10,13 @@ export interface HistoryItem {
   timestamp: number;
   faviconUrl?: string;
 }
+export interface Bookmark {
+  id: string;
+  url: string;
+  title: string;
+  faviconUrl?: string;
+  createdAt: number;
+}
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;

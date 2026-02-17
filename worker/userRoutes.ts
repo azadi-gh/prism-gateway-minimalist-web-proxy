@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Env } from './core-utils';
-import type { HistoryItem, ApiResponse } from '@shared/types';
+import type { HistoryItem, Bookmark, ApiResponse } from '@shared/types';
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
     app.get('/api/history', async (c) => {
         const stub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
@@ -13,20 +13,60 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         const updated = await stub.addHistoryItem(item);
         return c.json({ success: true, data: updated } satisfies ApiResponse<HistoryItem[]>);
     });
+    app.delete('/api/history', async (c) => {
+        const stub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
+        await stub.clearHistory();
+        return c.json({ success: true } satisfies ApiResponse);
+    });
+    app.get('/api/bookmarks', async (c) => {
+        const stub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
+        const bookmarks = await stub.getBookmarks();
+        return c.json({ success: true, data: bookmarks } satisfies ApiResponse<Bookmark[]>);
+    });
+    app.post('/api/bookmarks', async (c) => {
+        const item = await c.req.json() as Bookmark;
+        const stub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
+        const updated = await stub.toggleBookmark(item);
+        return c.json({ success: true, data: updated } satisfies ApiResponse<Bookmark[]>);
+    });
     app.get('/api/proxy', async (c) => {
         const targetUrl = c.req.query('url');
-        if (!targetUrl) {
-            return c.json({ success: false, error: 'URL parameter is required' }, 400);
-        }
+        if (!targetUrl) return c.json({ success: false, error: 'URL parameter is required' }, 400);
         try {
             const url = new URL(targetUrl);
-            const response = await fetch(url.toString(), {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                }
+            const clientHeaders = new Headers(c.req.header());
+            // Filter headers to pass to target
+            const headersToSend = new Headers();
+            const allowedHeaders = ['user-agent', 'accept', 'accept-language', 'cookie', 'referer'];
+            allowedHeaders.forEach(h => {
+                const val = clientHeaders.get(h);
+                if (val) headersToSend.set(h, val);
             });
+            const response = await fetch(url.toString(), { headers: headersToSend });
             const proxyBase = `${new URL(c.req.url).origin}/api/proxy?url=`;
+            // Script for navigation sync
+            const injectionScript = `
+                <script>
+                    (function() {
+                        const targetUrl = new URL(window.location.href).searchParams.get('url');
+                        if (window.parent !== window) {
+                            window.parent.postMessage({ type: 'PRISM_NAV', url: targetUrl, title: document.title }, '*');
+                        }
+                        // Intercept clicks for internal links that might not be rewritten
+                        document.addEventListener('click', e => {
+                            const link = e.target.closest('a');
+                            if (link && link.href && !link.href.startsWith('mailto:') && !link.href.startsWith('tel:')) {
+                                // If it's not already proxied, we might want to handle it, 
+                                // but HTMLRewriter usually catches these.
+                            }
+                        }, true);
+                    })();
+                </script>
+            `;
             const rewriter = new HTMLRewriter()
+                .on('head', {
+                    element(el) { el.append(injectionScript, { html: true }); }
+                })
                 .on('a', {
                     element(el) {
                         const href = el.getAttribute('href');
@@ -34,30 +74,18 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
                             try {
                                 const absolute = new URL(href, url.origin).toString();
                                 el.setAttribute('href', proxyBase + encodeURIComponent(absolute));
-                            } catch (e) { /* Invalid URL segments ignored */ }
+                            } catch (e) {}
                         }
                     }
                 })
                 .on('img', {
                     element(el) {
                         const src = el.getAttribute('src');
-                        const srcset = el.getAttribute('srcset');
                         if (src) {
                             try {
                                 const absolute = new URL(src, url.origin).toString();
                                 el.setAttribute('src', proxyBase + encodeURIComponent(absolute));
-                            } catch (e) { /* Invalid URL segments ignored */ }
-                        }
-                        if (srcset) {
-                            // Basic srcset rewriting: replace URLs between commas
-                            const parts = srcset.split(',').map(part => {
-                                const [u, size] = part.trim().split(/\s+/);
-                                try {
-                                    const abs = new URL(u, url.origin).toString();
-                                    return `${proxyBase}${encodeURIComponent(abs)}${size ? ' ' + size : ''}`;
-                                } catch { return part; }
-                            });
-                            el.setAttribute('srcset', parts.join(', '));
+                            } catch (e) {}
                         }
                     }
                 })
@@ -68,7 +96,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
                             try {
                                 const absolute = new URL(href, url.origin).toString();
                                 el.setAttribute('href', proxyBase + encodeURIComponent(absolute));
-                            } catch (e) { /* Invalid URL segments ignored */ }
+                            } catch (e) {}
                         }
                     }
                 })
@@ -79,47 +107,25 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
                             try {
                                 const absolute = new URL(src, url.origin).toString();
                                 el.setAttribute('src', proxyBase + encodeURIComponent(absolute));
-                            } catch (e) { /* Invalid URL segments ignored */ }
-                        }
-                    }
-                })
-                .on('video', {
-                    element(el) {
-                        const poster = el.getAttribute('poster');
-                        if (poster) {
-                            try {
-                                const absolute = new URL(poster, url.origin).toString();
-                                el.setAttribute('poster', proxyBase + encodeURIComponent(absolute));
-                            } catch (e) { /* Invalid URL segments ignored */ }
+                            } catch (e) {}
                         }
                     }
                 });
             const transformedResponse = rewriter.transform(response);
             const headers = new Headers(transformedResponse.headers);
-            // Refined security header cleanup
             headers.delete('X-Frame-Options');
             headers.delete('Content-Security-Policy');
-            headers.delete('Content-Security-Policy-Report-Only');
-            headers.delete('X-Content-Type-Options');
             headers.set('Access-Control-Allow-Origin', '*');
-            // Handle CSS @import rewriting if content-type is CSS
-            const contentType = headers.get('Content-Type') || '';
-            if (contentType.includes('text/css')) {
-                let cssText = await transformedResponse.text();
-                cssText = cssText.replace(/@import\s+url\((['"]?)(.*?)\1\)/g, (match, quote, subUrl) => {
-                    try {
-                        const abs = new URL(subUrl, url.origin).toString();
-                        return `@import url(${quote}${proxyBase}${encodeURIComponent(abs)}${quote})`;
-                    } catch { return match; }
-                });
-                return new Response(cssText, { status: 200, headers });
+            // Set-Cookie handling: map to proxy domain
+            const setCookie = response.headers.get('set-cookie');
+            if (setCookie) {
+                headers.set('Set-Cookie', setCookie); 
             }
             return new Response(transformedResponse.body, {
                 status: transformedResponse.status,
                 headers
             });
         } catch (error) {
-            console.error('[PROXY ERROR]', error);
             return c.json({ success: false, error: 'Failed to fetch the requested URL' }, 500);
         }
     });
