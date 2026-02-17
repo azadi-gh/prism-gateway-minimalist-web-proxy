@@ -12,6 +12,7 @@
     --border: 214.3 31.8% 91.4%;
     --ring: 239 84% 67%;
     --radius: 1rem;
+    --accent-indigo: 239 84% 60%;
   }
   .dark {
     --background: 222 47% 4%;
@@ -26,36 +27,47 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground antialiased;
-    background-image: radial-gradient(circle at 2px 2px, rgba(0,0,0,0.02) 1px, transparent 0);
-    background-size: 24px 24px;
+    @apply bg-background text-foreground antialiased selection:bg-indigo-500/20 selection:text-indigo-900 dark:selection:text-indigo-100;
+    background-image: radial-gradient(circle at 2px 2px, rgba(99, 102, 241, 0.015) 1px, transparent 0);
+    background-size: 32px 32px;
   }
-  .dark body {
-    background-image: radial-gradient(circle at 2px 2px, rgba(255,255,255,0.02) 1px, transparent 0);
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40 transition-colors;
   }
 }
 @layer components {
   .text-gradient {
     @apply bg-clip-text text-transparent bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 font-black;
   }
-  .shadow-soft {
-    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
+  .premium-glass {
+    @apply bg-background/60 backdrop-blur-2xl border border-white/10 dark:border-white/5;
+    box-shadow: 
+      0 4px 6px -1px rgba(0, 0, 0, 0.1), 
+      0 2px 4px -1px rgba(0, 0, 0, 0.06),
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.05);
   }
-  .glass-card {
-    @apply bg-background/60 backdrop-blur-xl border border-white/20 shadow-soft;
+  .liquid-input {
+    @apply transition-all duration-300 focus-within:ring-4 focus-within:ring-indigo-500/10 focus-within:scale-[1.01];
   }
-}
-/* Animations */
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  .text-balance {
+    text-wrap: balance;
   }
 }
-.animate-fade-in-up {
-  animation: fade-in-up 0.5s ease-out forwards;
+/* Cinematic Transitions */
+.view-enter {
+  opacity: 0;
+  transform: scale(0.98) translateY(10px);
+}
+.view-enter-active {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  transition: opacity 500ms ease-out, transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
 }

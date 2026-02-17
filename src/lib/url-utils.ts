@@ -12,7 +12,6 @@ export function isValidUrl(url: string): boolean {
 export function normalizeUrl(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) return "";
-  // Check if it's already a full URL with protocol
   if (/^https?:\/\//i.test(trimmed)) {
     try {
       return new URL(trimmed).toString();
@@ -20,12 +19,10 @@ export function normalizeUrl(url: string): string {
       return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
     }
   }
-  // Check for domain-like patterns (e.g., "google.com", "sub.domain.org/path")
   const domainPattern = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}(:\d+)?(\/.*)?$/i;
   if (domainPattern.test(trimmed)) {
     return `https://${trimmed}`;
   }
-  // Fallback to search
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
 }
 export function getProxyUrl(targetUrl: string): string {
@@ -52,7 +49,23 @@ export function getFaviconUrl(url: string): string {
 export function getDisplayDomain(url: string): string {
   try {
     const parsed = new URL(url);
-    return parsed.hostname.replace(/^www\./, '');
+    const hostname = parsed.hostname.replace(/^www\./, '');
+    // If it's a search result, show a better label
+    if (hostname.includes('google.com') && parsed.pathname.includes('search')) {
+      const query = parsed.searchParams.get('q');
+      return query ? `Search: ${query}` : 'Google Search';
+    }
+    return hostname;
+  } catch {
+    return url;
+  }
+}
+export function getPrettyUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    let pretty = parsed.hostname.replace(/^www\./, '') + parsed.pathname;
+    if (pretty.endsWith('/')) pretty = pretty.slice(0, -1);
+    return pretty;
   } catch {
     return url;
   }
