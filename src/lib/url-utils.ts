@@ -10,22 +10,23 @@ export function isValidUrl(url: string): boolean {
   }
 }
 export function normalizeUrl(url: string): string {
-  let trimmed = url.trim();
+  const trimmed = url.trim();
   if (!trimmed) return "";
-  // Strip common prefixes that are not valid in URLs but users often enter
-  trimmed = trimmed.replace(/^(http:\/\/|https:\/\/)+/i, 'https://');
-  if (!/^https?:\/\//i.test(trimmed)) {
-    trimmed = 'https://' + trimmed;
-  }
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.hostname.includes('.') && !parsed.hostname.includes(' ')) {
-      return parsed.toString();
+  // Check if it's already a full URL with protocol
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      return new URL(trimmed).toString();
+    } catch {
+      return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
     }
-    return `https://www.google.com/search?q=${encodeURIComponent(url.trim())}`;
-  } catch {
-    return `https://www.google.com/search?q=${encodeURIComponent(url.trim())}`;
   }
+  // Check for domain-like patterns (e.g., "google.com", "sub.domain.org/path")
+  const domainPattern = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}(:\d+)?(\/.*)?$/i;
+  if (domainPattern.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  // Fallback to search
+  return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
 }
 export function getProxyUrl(targetUrl: string): string {
   if (!targetUrl) return "";
@@ -57,6 +58,8 @@ export function getDisplayDomain(url: string): string {
   }
 }
 export function cleanTitle(title: string, url: string): string {
-    if (!title || title === "undefined" || title.length === 0) return getDisplayDomain(url);
-    return title.trim();
+  if (!title || title === "undefined" || title.length === 0) {
+    return getDisplayDomain(url);
+  }
+  return title.trim();
 }

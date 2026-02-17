@@ -22,68 +22,66 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [displayUrl, setDisplayUrl] = useState(initialUrl);
   const [isLoading, setIsLoading] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
+  const [navHistory, setNavHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const checkBookmarkStatus = useCallback(async (url: string) => {
-    try {
-      const res = await fetch('/api/bookmarks');
-      const json = await res.json() as ApiResponse<Bookmark[]>;
-      if (json.success && json.data) {
-        setIsBookmarked(json.data.some(b => b.url === url));
+  // Consolidated logic for recording history and checking bookmark status
+  useEffect(() => {
+    if (!currentUrl) return;
+    const recordVisit = async () => {
+      try {
+        await fetch('/api/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: uuidv4(),
+            url: currentUrl,
+            title: new URL(currentUrl).hostname,
+            timestamp: Date.now(),
+            faviconUrl: getFaviconUrl(currentUrl)
+          }),
+        });
+        const bRes = await fetch('/api/bookmarks');
+        const bJson = await bRes.json() as ApiResponse<Bookmark[]>;
+        if (bJson.success && bJson.data) {
+          setIsBookmarked(bJson.data.some(b => b.url === currentUrl));
+        }
+      } catch (e) {
+        // Silently handle background metadata failures
       }
-    } catch (e) {
-      /* Silently fail bookmark check to prevent UI interruption */
-    }
-  }, []);
-  const recordHistory = useCallback(async (url: string, title?: string) => {
-    try {
-      await fetch('/api/history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: uuidv4(),
-          url: url,
-          title: title || new URL(url).hostname,
-          timestamp: Date.now(),
-          faviconUrl: getFaviconUrl(url)
-        }),
-      });
-    } catch (e) {
-      /* Background history recording can fail without blocking the user */
-    }
-  }, []);
+    };
+    recordVisit();
+  }, [currentUrl]);
+  // Initial setup
   useEffect(() => {
     if (initialUrl) {
       const normalized = normalizeUrl(initialUrl);
       setCurrentUrl(normalized);
       setDisplayUrl(normalized);
-      setHistory([normalized]);
+      setNavHistory([normalized]);
       setHistoryIndex(0);
-      recordHistory(normalized);
-      checkBookmarkStatus(normalized);
     }
-  }, [initialUrl, recordHistory, checkBookmarkStatus]);
+  }, [initialUrl]);
+  // Listen for iframe navigation events
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'PRISM_NAV') {
         const newUrl = event.data.url;
+        // Only update if the URL actually changed to prevent loops
         if (newUrl && newUrl !== currentUrl) {
           setCurrentUrl(newUrl);
           setDisplayUrl(newUrl);
-          const newHistory = history.slice(0, historyIndex + 1);
+          const newHistory = navHistory.slice(0, historyIndex + 1);
           newHistory.push(newUrl);
-          setHistory(newHistory);
+          setNavHistory(newHistory);
           setHistoryIndex(newHistory.length - 1);
-          recordHistory(newUrl, event.data.title);
-          checkBookmarkStatus(newUrl);
         }
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [currentUrl, history, historyIndex, recordHistory, checkBookmarkStatus]);
+  }, [currentUrl, navHistory, historyIndex]);
   const toggleBookmark = async () => {
     try {
       const res = await fetch('/api/bookmarks', {
@@ -109,15 +107,36 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
   const handleNavigate = (e: React.FormEvent) => {
     e.preventDefault();
     const normalized = normalizeUrl(displayUrl);
-    if (normalized !== currentUrl) {
-      setIsLoading(true);
+    // Always trigger loading state
+    setIsLoading(true);
+    if (normalized === currentUrl) {
+      reload();
+    } else {
       setCurrentUrl(normalized);
-      const newHistory = history.slice(0, historyIndex + 1);
+      const newHistory = navHistory.slice(0, historyIndex + 1);
       newHistory.push(normalized);
-      setHistory(newHistory);
+      setNavHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
-      recordHistory(normalized);
-      checkBookmarkStatus(normalized);
+    }
+  };
+  const goBack = () => {
+    if (historyIndex > 0) {
+      const prevIndex = historyIndex - 1;
+      const prevUrl = navHistory[prevIndex];
+      setHistoryIndex(prevIndex);
+      setCurrentUrl(prevUrl);
+      setDisplayUrl(prevUrl);
+      setIsLoading(true);
+    }
+  };
+  const goForward = () => {
+    if (historyIndex < navHistory.length - 1) {
+      const nextIndex = historyIndex + 1;
+      const nextUrl = navHistory[nextIndex];
+      setHistoryIndex(nextIndex);
+      setCurrentUrl(nextUrl);
+      setDisplayUrl(nextUrl);
+      setIsLoading(true);
     }
   };
   const reload = () => {
@@ -125,7 +144,9 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
       setIsLoading(true);
       const currentSrc = iframeRef.current.src;
       iframeRef.current.src = '';
-      setTimeout(() => { if(iframeRef.current) iframeRef.current.src = currentSrc; }, 10);
+      setTimeout(() => { 
+        if(iframeRef.current) iframeRef.current.src = currentSrc; 
+      }, 50);
     }
   };
   return (
@@ -136,13 +157,30 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
             <Home className="w-4 h-4" />
           </Button>
           <div className="flex gap-0.5 ml-2">
-            <Button variant="ghost" size="icon" onClick={() => {}} disabled={historyIndex <= 0} className="w-8 h-8 rounded-full">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={goBack} 
+              disabled={historyIndex <= 0} 
+              className="w-8 h-8 rounded-full"
+            >
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => {}} disabled={historyIndex >= history.length - 1} className="w-8 h-8 rounded-full">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={goForward} 
+              disabled={historyIndex >= navHistory.length - 1} 
+              className="w-8 h-8 rounded-full"
+            >
               <ArrowRight className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={reload} className="w-8 h-8 rounded-full">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={reload} 
+              className="w-8 h-8 rounded-full"
+            >
               <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
@@ -172,6 +210,7 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
               onChange={(e) => setDisplayUrl(e.target.value)}
               className="w-full h-10 pl-14 pr-24 bg-secondary/60 border-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 rounded-xl text-sm font-medium"
               spellCheck={false}
+              autoComplete="off"
             />
             <div className="absolute right-2 flex items-center gap-1">
               <Button
@@ -202,10 +241,10 @@ export function BrowserShell({ initialUrl, onHome }: BrowserShellProps) {
           </div>
         </form>
         <div className="w-32 flex justify-end gap-2 items-center">
-            <div className="h-8 px-3 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Live</span>
-            </div>
+          <div className="h-8 px-3 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Live</span>
+          </div>
         </div>
         <AnimatePresence>
           {isLoading && (
